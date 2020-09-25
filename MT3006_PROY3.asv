@@ -12,19 +12,8 @@ tf = 20; % tiempo final ***** PUEDE MODIFICAR *****
 N = (tf-t0)/dt; % número de iteraciones
 
 %% Generación de landmarks 
-dist_obs=2;%forma en que se distribuiran obstaculos
-num_obs=10;
-obs=zeros(2,num_obs);
-
-if dist_obs ==1
-    obs = [-2.14,  2.90, -3.80, -2.13, 4.97, -0.38,  3.59, -1.39, 2.18, -1.97;
-        -0.09, -2.64,  1.81,  2.99, 1.30, -4.56, -0.75,  0.08, 2.80,  4.46];
-elseif dist_obs ==2    
-    radio=4;
-    for i=1:num_obs
-        obs(:,i)=radio*[cos(2*pi*(i/num_obs));sin(2*pi*(i/num_obs))];
-    end
-end
+obs = [-2.14,  2.90, -3.80, -2.13, 4.97, -0.38,  3.59, -1.39, 2.18, -1.97;
+       -0.09, -2.64,  1.81,  2.99, 1.30, -4.56, -0.75,  0.08, 2.80,  4.46];
 
 %% Inicialización y condiciones iniciales
 % Condiciones iniciales 
