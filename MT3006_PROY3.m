@@ -8,7 +8,7 @@
 %% Parámetros de la simulación
 dt = 0.01; % período de muestreo
 t0 = 0; % tiempo inicial
-tf = 20; % tiempo final ***** PUEDE MODIFICAR *****
+tf = 10; % tiempo final ***** PUEDE MODIFICAR *****
 N = (tf-t0)/dt; % número de iteraciones
 
 %% Generación de landmarks 
@@ -28,8 +28,8 @@ end
 
 %% Inicialización y condiciones iniciales
 % Condiciones iniciales 
-x0 = -2; % ***** PUEDE MODIFICAR *****
-y0 = -2; % ***** PUEDE MODIFICAR *****
+x0 = 4; % ***** PUEDE MODIFICAR *****
+y0 = 0; % ***** PUEDE MODIFICAR *****
 theta0 = pi/2; % ***** PUEDE MODIFICAR *****
 
 xi0 = [x0; y0; theta0; 0; 0];
@@ -195,8 +195,8 @@ for n = 0:N
         phiR = (2*v + 2*w*robot_ell) / (2*robot_r);
         phiL = (2*v - 2*w*robot_ell) / (2*robot_r);
     else
-        phiR = 6;
-        phiL = 4;
+        phiR = 10;
+        phiL = 8;
     end
     
     % Vector de entrada del sistema
@@ -290,11 +290,11 @@ for n = 0:N
     ENC_R(:,n+1) = encoder_rticks;
     ENC_L(:,n+1) = encoder_lticks;
 end
-
+%%
 % Se construye el mapa con las posiciones estimadas de los obstáculos,
 % estos se grafican como rombos verdes en la visualización de la
 % simulación
-map = reshape(x_hat_post, [2, numel(x_hat_post)/2]);
+map = reshape(x_hat_post(4:end), [2, numel(x_hat_post(4:end))/2]);
 
 % Trayectoria real del estado del robot
 figure;
