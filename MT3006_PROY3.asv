@@ -8,7 +8,7 @@
 %% Parámetros de la simulación
 dt = 0.05; % período de muestreo
 t0 = 0; % tiempo inicial
-tf = 25; % tiempo final ***** PUEDE MODIFICAR *****
+tf = 10; % tiempo final ***** PUEDE MODIFICAR *****
 N = (tf-t0)/dt; % número de iteraciones
 
 %% Generación de landmarks 
@@ -28,7 +28,7 @@ end
 
 %% Inicialización y condiciones iniciales
 % Condiciones iniciales 
-x0 = 3.5; % ***** PUEDE MODIFICAR *****
+x0 = 4; % ***** PUEDE MODIFICAR *****
 y0 = 0; % ***** PUEDE MODIFICAR *****
 theta0 = pi/2; % ***** PUEDE MODIFICAR *****
 
@@ -40,11 +40,9 @@ mu = mu0; % vector de entradas
 % Arrays para almacenar las trayectorias de las variables de estado,
 % entradas y trayectoria del punto de interés en el plano de imagen
 XI = zeros(numel(xi),N+1);
-X_ETA = zeros(3,N+1);
 MU = zeros(numel(mu),N+1);
 % Inicialización de arrays
 XI(:,1) = xi0;
-X_ETA(:,1) = xi0(1:3);
 MU(:,1) = mu0;
 
 % Arrays auxiliares para dashboard de sensores
@@ -124,8 +122,8 @@ drho = 0;
 dtheta = 0;
 %% Parámetros e inicialización del filtro de Kalman
 % Varianza del ruido de proceso (encoders)
-sw1 = 1.8; % desplazamiento lineal, en metros;
-sw2 = 1.9; % desplazamiento angular, en radianes
+sw1 = 0.0012; % desplazamiento lineal, en metros;
+sw2 = 0.0062; % desplazamiento angular, en radianes
 % Varianzas del ruido de observación (estimadas experimentalmente)
 s_kappa = 0.0998;
 s_beta = 0.0176;
@@ -210,14 +208,14 @@ for n = 0:N
     % *********************************************************************
     % Predicción
     % ---------------------------------------------------------------------
-    x_Eta=Func(x_hat_post(1:3), drho, dtheta)
+    x_Eta=Func(x_hat_prior(1:3), drho, dtheta);
     x_hat_prior(1:3)=x_Eta;
     x_hat_prior = x_hat_post;
     %P_prior = P_post;
     
     % Se generan los jacobianos a emplear en el EKF
-    A = dFunc_dx(x_hat_post(1:3), drho, dtheta);
-    F = dFunc_dw(x_hat_post(1:3), drho, dtheta);
+    A = dFunc_dx(x_hat_prior(1:3), drho, dtheta);
+    F = dFunc_dw(x_hat_prior(1:3), drho, dtheta);
     
     P_ee_prior=P_prior(1:3,1:3);
     P_ep_prior=P_prior(1:3,4:end);
@@ -236,7 +234,7 @@ for n = 0:N
     % Se estima la posición de todos los obstáculos medidos con el sensor
     for i = 1:length(range)
         yi = [range(i); bearing(i)]; % medición
-        pi_hat = g(xi,yi); % posición estimada
+        pi_hat = g(x_Eta,yi); % posición estimada
         obs_found = 0; % monitoreo de coincidencia de obstáculos previos
         % Se compara el obstáculo estimado con los estimados de todos los
         % obstáculos previamente encontrados, buscando hacer una
@@ -283,7 +281,6 @@ for n = 0:N
     % *********************************************************************
     
     % Se guardan las trayectorias del estado y las entradas
-    X_ETA(:,n+1) = x_Eta;
     XI(:,n+1) = xi;
     MU(:,n+1) = mu;
     
@@ -302,10 +299,6 @@ map = reshape(x_hat_post(4:end), [2, numel(x_hat_post(4:end))/2]);
 % Trayectoria real del estado del robot
 figure;
 t = t0:dt:tf;
-newcolors = [0 0.4470 0.7410;
-    0.8500 0.3250 0.0980;
-    0.9290 0.6940 0.1250];
-set(gcf,'DefaultAxesColorOrder',newcolors)
 plot(t, XI(1:3,:)', 'LineWidth', 1);
 xlabel('$t$', 'Interpreter', 'latex', 'Fontsize', 16);
 ylabel('$\mathbf{x}(t)$', 'Interpreter', 'latex', 'Fontsize', 16);
@@ -313,14 +306,6 @@ l = legend('$x(t)$', '$y(t)$', '$\theta(t)$', 'Location', 'best', ...
     'Orientation', 'vertical');
 set(l, 'Interpreter', 'latex', 'FontSize', 12);
 grid minor;
-
-hold on
-newcolors = [0 0.4470 0.7410;
-    0.8500 0.3250 0.0980;
-    0.9290 0.6940 0.1250];
-set(gcf,'DefaultAxesColorOrder',newcolors)
-plot(t, X_ETA','--', 'LineWidth', 1);
-hold off
 
 % Factor de escala para el "mundo" del robot
 sf = 5; 
