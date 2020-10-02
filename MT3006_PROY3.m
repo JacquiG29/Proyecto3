@@ -63,6 +63,8 @@ ref = [refx; refy];
 %% Parámetros del robot y del controlador
 robot_r = (195/1000)/2; % radio de las ruedas
 robot_ell = 381/1000; % distancia entre ruedas
+robot_N = 256; % ticks por revolución de los encoders
+
 % Acercamiento exponencial
 v0 = 4*2; % (ajustar según rendimiento del EKF)
 alpha = 0.5;
@@ -86,16 +88,42 @@ g = @(xi, yi) [xi(1) + yi(1)*cos(xi(3)+yi(2));
 % Matriz de observación asociada al i-ésimo obstáculo encontrado
 C_i = @(xi, pi) [(pi(1)-xi(1))/norm(pi-xi(1:2)), (pi(2)-xi(2))/norm(pi-xi(1:2));
                  -(pi(2)-xi(2))/norm(pi-xi(1:2))^2, (pi(1)-xi(1))/norm(pi-xi(1:2))^2];
-
+             
+C_eta = @(xi, pi) [-(pi(1)-xi(1))/norm(pi-xi(1:2)), -(pi(2)-xi(2))/norm(pi-xi(1:2)),0;
+                   (pi(2)-xi(2))/norm(pi-xi(1:2))^2, -(pi(1)-xi(1))/norm(pi-xi(1:2))^2,-1];
+% Jacobiano de g con respecto de las mediciones
+G_eta = @(xi, yi) [1,0,-yi(1)*sin(xi(3)+yi(2));
+                   0,1,yi(1)*cos(xi(3)+yi(2))];             
+             
 % Jacobiano de g con respecto de las mediciones
 Gy = @(xi, yi) [cos(xi(3)+yi(2)), -yi(1)*sin(xi(3)+yi(2));
                 sin(xi(3)+yi(2)), yi(1)*cos(xi(3)+yi(2))];
 
 % Jacobiano de inserción para el aumento de la matriz de covarianza del
 % error de estimación
-ins_jacob = @(n, xi, yi) [eye(n), zeros(n,2); zeros(2,n), Gy(xi,yi)]; 
-         
+ins_jacob = @(n, xi, yi) [eye(n), zeros(n,2);G_eta(xi,yi),zeros(2,n-3), Gy(xi,yi)]; 
+ 
+% Modelo de odometría
+Func = @(x,drho,dtheta) [x(1)+drho*cos(x(3)); x(2)+drho*sin(x(3)); x(3)+dtheta]; 
+
+% Jacobianos del modelo de odometría
+dFunc_dx = @(x,drho,dtheta) [1,0, -drho*sin(x(3)); 0,1, drho*cos(x(3)); 0,0,1];
+dFunc_dw = @(x,drho,dtheta) [cos(x(3)),0; sin(x(3)),0; 0,1];
+
+%% Definición de variables para la odometría
+% Medición previa del número de ticks por rueda
+ticksR = 0; 
+ticksL = 0;
+% Longitud de los arcos de las ruedas y del centro
+DL = 0;
+DR = 0;
+% Incrementos de posición lineal y angular
+drho = 0;   
+dtheta = 0;
 %% Parámetros e inicialización del filtro de Kalman
+% Varianza del ruido de proceso (encoders)
+sw1 = 0.0012; % desplazamiento lineal, en metros;
+sw2 = 0.0062; % desplazamiento angular, en radianes
 % Varianzas del ruido de observación (estimadas experimentalmente)
 s_kappa = 0.0998;
 s_beta = 0.0176;
@@ -103,20 +131,22 @@ s_beta = 0.0176;
 s_x = 0.0342;
 s_y = 0.0996;
 % Matrices de covarianza
+Qw = diag([sw1^2, sw2^2]);
 QvG = diag([s_kappa^2, s_beta^2]);
 Qvg = diag([s_x^2, s_y^2]);
 % Vector de estado a-priori y a-posteriori
-x_hat_prior = [];
-x_hat_post = [];
+x_hat_prior = [x0, y0, theta0]';
+x_hat_post = [0,0,0]';
 % Matriz de covarianza a-priori y a-posteriori
-P_prior = [];
-P_post = [];
+a=numel(x_hat_prior)
+P_prior = [zeros(a,a)];
+P_post = [zeros(a,a)];
 % Número de obstáculos encontrados
 M = 0;
 % Tolerancia empleada para la correspondencia de obstáculos previamente 
 % encontrados (ajustar según rendimiento del EKF)
 tol = 4*sqrt(s_x^2 + s_y^2);
-
+controlador=0;
 %% Solución recursiva del sistema dinámico
 for n = 0:N
     % Se adelanta un paso en la simulación del robot diferencial y se
@@ -127,6 +157,16 @@ for n = 0:N
     
     % Posición y orientación real del robot
     x = xi(1); y = xi(2); theta = xi(3);
+    
+    % Se calculan los incrementos de posición lineal y angular mediante
+    % odometría
+    DL = 2*pi*robot_r*((encoder_lticks - ticksL)/robot_N);
+    DR = 2*pi*robot_r*((encoder_rticks - ticksR)/robot_N);
+    ticksL = encoder_lticks;
+    ticksR = encoder_rticks;
+    %calcular odometria
+    drho = (DR + DL)/2;
+    dtheta = (DR - DL)/robot_ell;
     
     % *********************************************************************
     % COLOCAR EL CONTROLADOR AQUÍ
@@ -151,10 +191,13 @@ for n = 0:N
     eO_1 = eO;
 
     % Velocidades de las ruedas del robot
-    phiR = (2*v + 2*w*robot_ell) / (2*robot_r);
-    phiL = (2*v - 2*w*robot_ell) / (2*robot_r);
-%     phiR = 6;
-%     phiL = 4;
+    if controlador==1
+        phiR = (2*v + 2*w*robot_ell) / (2*robot_r);
+        phiL = (2*v - 2*w*robot_ell) / (2*robot_r);
+    else
+        phiR = 6;
+        phiL = 4;
+    end
     
     % Vector de entrada del sistema
     mu = [phiR; phiL];
@@ -165,15 +208,28 @@ for n = 0:N
     % *********************************************************************
     % Predicción
     % ---------------------------------------------------------------------
+    x_Eta=Func(x_hat_prior(1:3), drho, dtheta);
+    x_hat_prior(1:3)=x_Eta;
     x_hat_prior = x_hat_post;
-    P_prior = P_post;
+    %P_prior = P_post;
     
+    % Se generan los jacobianos a emplear en el EKF
+    A = dFunc_dx(x_hat_prior(1:3), drho, dtheta);
+    F = dFunc_dw(x_hat_prior(1:3), drho, dtheta);
+    
+    P_ee_prior=P_prior(1:3,1:3);
+    P_ep_prior=P_prior(1:3,4:end);
+    P_ep_prior_T=P_prior(4:end,1:3);
+    P_pp_prior=P_prior(4:end,4:end);
+    
+    P_prior=[A*P_ee_prior*A'+F*Qw*F'   A*P_ep_prior;
+             P_ep_prior_T*A'             P_pp_prior];
     % Corrección
     % ---------------------------------------------------------------------
     % Se pre-asigna el vector de innovaciones y la matriz de observación
     % con base en el número de obstáculos actuales
     z = zeros(2*M,1);
-    C = zeros(2*M,2*M);
+    C = [zeros(2*M,3),zeros(2*M,2*M)];
     
     % Se estima la posición de todos los obstáculos medidos con el sensor
     for i = 1:length(range)
@@ -189,7 +245,8 @@ for n = 0:N
                 % matriz de observación asociadas al obstáculo previo
                 if(norm(pi_hat - x_hat_prior(2*j-1:2*j)) < tol)
                     z(2*j-1:2*j) = yi - G(xi, x_hat_post(2*j-1:2*j)); 
-                    C(2*j-1:2*j,2*j-1:2*j) = C_i(xi, x_hat_post(2*j-1:2*j));
+                    C(2*j-1:2*j,1:3)= C_eta(xi, x_hat_post(2*j-1:2*j));
+                    C(2*j-1:2*j,2*j+2:2*j+3) = C_i(xi, x_hat_post(2*j-1:2*j));
                     obs_found = 1; % hay coincidencia
                 end
             end
@@ -200,8 +257,9 @@ for n = 0:N
         % la matriz de covarianza del error
         if(~obs_found)
             x_hat_prior = [x_hat_prior; pi_hat];
-            Yy = ins_jacob(2*M, xi, yi);
-            P_prior = Yy*[P_prior, zeros(2*M,2); zeros(2,2*M), Qvg]*Yy';
+            n_x=2*M+3;
+            Yy = ins_jacob(n_x, xi, yi);
+            P_prior = Yy*[P_prior, zeros(n_x,2); zeros(2,n_x), Qvg]*Yy';
             M = M + 1; % se incrementa el número de obstáculos encontrados
             % Se asegura que tanto la innovación del nuevo obstáculo como
             % su matriz de observación sean cero, para no tomarse en cuenta
@@ -209,8 +267,8 @@ for n = 0:N
             % del obstáculo
             z = [z; 0;0];
             C_temp = C;
-            C = zeros(2*M, 2*M); 
-            C(1:2*(M-1), 1:2*(M-1)) = C_temp;
+            C = [zeros(2*M,3),zeros(2*M,2*M)]; 
+            C(1:2*(M-1), 1:3+2*(M-1)) = C_temp;
         end
     end
     
@@ -219,6 +277,7 @@ for n = 0:N
     L = P_prior*C'*( C*P_prior*C' + kron(eye(M),QvG) )^(-1);
     x_hat_post = x_hat_prior + L*z;
     P_post = P_prior - L*C*P_prior;
+    
     % *********************************************************************
     
     % Se guardan las trayectorias del estado y las entradas
